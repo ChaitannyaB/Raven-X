@@ -2,30 +2,37 @@ from __future__ import print_function
 
 import datetime
 import os.path
-import pickle
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 import os
-import time
+import openai
 import pyttsx3
 import speech_recognition as sr
 import pytz
 import subprocess
 from googlesearch import search
+import platform
+import warnings
 
+warnings.filterwarnings('ignore')
+openai.api_key='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'
 SCOPES = ['https://www.googleapis.com/auth/calendar.readonly']
 BOT_TRIGGERS = ["hello", "hey", "hi","how are you"]
 TERMINATE_TRIGGERS = ["shut down","close process","terminate"]
 SEARCH_TRIGGERS = ["google","search for","look for"]
-NOTE_TRIGGERS = ["take a note","open note","notepad","write","remember"]
+NOTE_TRIGGERS = ["take a note","open note","notepad","write","remember","note"]
 CALENDAR_TRIGGERS = ["what do i have","schedule","plans","what am i doing","am i busy","am i free","what i have"]
 MONTHS = ["january","february","march","april","may","june","july","august","september","october","november","december"]
 DAYS = ["monday","tuesday","wednesday","thursday","friday","saturday","sunday"]
 DAY_EXTENSIONS = ["st","nd","rd","th"]
+ 
 asked_for_calendar=0
+
+messages = [{"role": "system", "content": 'You are a useful virtual assistant. Act as if you were a good helpful friend'}]
+
 
 def speak(text):
     engine=pyttsx3.init()
@@ -42,8 +49,18 @@ def get_audio():
             said= r.recognize_google(audio)
             print(said)
         except Exception as e:
-            print("Exception: "+str(e))
+            pass
     return said
+
+
+def ask_gpt(said):
+    global messages
+    messages.append({'role':'user','content':said})
+    response = openai.ChatCompletion.Create(model="gpt-3.5-turbo", messages=messages)
+    system_message = response["choices"][0]["message"]
+    messages.append(system_message)
+    speak(system_message['content'])
+
 
 
 def authenticate_google():
@@ -155,14 +172,17 @@ def get_date(text):
     return datetime.date(day=day,month=month,year=year)
 
 
-def get_note():
+def get_note(sys_flag):
     date=datetime.datetime.now()
     file_name = str(date).replace(":","-")+"-note.txt"
     speak("What would you like me to take a note of?")
     note=get_audio().lower()
     with open(file_name,"w") as f:
-        f.write(note)
-    subprocess.Popen(["notepad.exe",file_name])
+        f.write(note)    
+    if sys_flag==0:
+        subprocess.Popen(["notepad.exe",file_name])
+    else:
+        subprocess.Popen(["/Applications/TextEdit.app/Contents/MacOS/TextEdit",file_name])
 
 
 def make_search():
@@ -173,14 +193,19 @@ def make_search():
         print(i)
 
 
+sys_flag=0
+op_sys=platform.platform()
+op_sys= op_sys.lower()
+if "mac" in op_sys:
+    sys_flag=1
 SERVICE = authenticate_google()
 speak("How can I help you")
 text = get_audio().lower()
-
 while True:
-
+    triggered=0
     for phrase in CALENDAR_TRIGGERS:
         if phrase in text:
+            triggered=1
             asked_for_calendar=1
             break
     if asked_for_calendar==1:
@@ -194,18 +219,23 @@ while True:
 
     for phrase in NOTE_TRIGGERS:
         if phrase in text:
-            get_note()
+            triggered=1
+            get_note(sys_flag)
             speak("i made a note of that.")
             break
 
     for phrase in SEARCH_TRIGGERS:
         if phrase in text:
+            triggered=1
             make_search()
             break
-    
+
     for phrase in TERMINATE_TRIGGERS:
         if phrase in text:
             quit()
+    
+    if triggered==0:
+        ask_gpt(text)
 
     speak("i'm listening.")
     text = get_audio().lower()
